@@ -1,0 +1,285 @@
+---
+title: "Report of studies available in curatedMetagenomicData"
+author: "Domenick J. Braccia"
+date: "10/15/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+library(curatedMetagenomicData)
+library(tidyverse)
+library(tictoc)
+library(ggthemes)
+library(forcats)
+library(reshape2)
+library(UpSetR)
+```
+### checklist
+
+* [X] - geographical distribution
+* [X] - disease type 
+** [X] - and subtype
+* [X] - number of samples per study
+* [X] - age sampled adult vs child
+* [ ] - (or even discrete months or years)
+
+### loading data
+
+```{r}
+# loading in all stool data
+if(file.exists("../data/all_data.RDS")) {
+  all_data <- readRDS("../data/all_data.RDS")
+} else {
+  tic()
+  all_data <- curatedMetagenomicData("*metaphlan_bugs_list.stool*", dryrun = FALSE)
+  saveRDS(all_data, file = "../data/all_data.RDS")
+  toc()
+}
+
+# loading in all pData
+if(file.exists("../data/combined_metadata.rda")) {
+  load("~/UMD/hall-pop-lab/GutFun/cMDeda/data/combined_metadata.rda")
+} else {
+  tic()
+  all_metadata <- wget(url = "https://github.com/waldronlab/curatedMetagenomicData/blob/master/data/combined_metadata.rda", dryrun = FALSE)
+  save(all_metadata, file = "../data/combined_metadata.rda")
+  toc()
+}
+
+```
+
+### prepping data
+
+```{r, echo=FALSE}
+# merging data
+all_data_merged <- mergeData(all_data)
+
+# extracting metadata
+all_pData <- pData(all_data_merged)
+
+## removing NAs from pData
+all_pData <- all_pData[!is.na(all_pData$study_condition), ]
+
+## subsetting pData to study_condition == "controls"
+all_pData_controls <- all_pData %>% filter(study_condition == "control")
+
+## getting rid of NAs in relative abundance (RA) data
+all_RA <- exprs(all_data_merged)
+all_RA <- all_RA[, !is.na(all_pData$study_condition)]
+
+## subsetting RA down to just present in control samples
+control_RA <- all_RA[, colnames(all_RA) %in% rownames(all_pData_controls)]
+```
+
+```{r,echo=FALSE}
+## number of samples per study condition
+all_pData %>% 
+  count(study_condition) %>%
+    ggplot(aes(x = reorder(study_condition, -n), y = n)) + 
+      geom_bar(stat = "identity") + 
+      theme_few() +
+      theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+      annotate("text", x = 7 , y = 6400, label = paste0("total samples = ", dim(all_pData)[1])) + 
+      scale_y_continuous(expand = c(0,0),) +
+      ggtitle("Number of samples per study_condition") + 
+      xlab("study_condition") + ylab("count")
+
+combined_metadata %>% 
+  count(study_condition) %>%
+    ggplot(aes(x = reorder(study_condition, -n), y = n)) + 
+      geom_bar(stat = "identity") + 
+      theme_few() +
+      theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+      annotate("text", x = 8, y = 6400, label = paste0("total samples = ", dim(combined_metadata)[1])) + 
+      scale_y_continuous(expand = c(0,0),) +
+      ggtitle("Number of samples per study_condition") + 
+      xlab("study_condition") + ylab("count")
+
+## number of samples per study condition minus control
+combined_metadata %>% 
+  filter(study_condition != "control") %>% 
+  count(study_condition) %>%
+    ggplot(aes(x = reorder(study_condition, -n), y = n)) + 
+    geom_bar(stat = "identity") + 
+    theme_few() + 
+    theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+    annotate("text", x = 8, y = 330, label = paste0("total samples = ", dim(combined_metadata %>% filter(study_condition != "control"))[1])) + 
+    scale_y_continuous(expand = c(0,0), limits = c(0, 360)) +
+    ggtitle("Number of samples per study_condition (minus control)") + 
+    xlab("study_condition") + ylab("count")
+
+## samples per study condition filled by disease subtype
+all_pData %>% 
+  filter(study_condition != "control", !is.na(disease_subtype), length(unique(disease_subtype)) > 1) %>%
+  count(study_condition, disease_subtype) %>%
+    ggplot(aes(x = reorder(study_condition, -n, sum), y = n, fill = disease_subtype)) + 
+    geom_bar(stat = "identity") + 
+    theme_few() + 
+    theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+    # annotate("text", x = 1.5 , y = 330, label = paste0("total samples = ", sum(.data$n))) + 
+    scale_y_continuous(expand = c(0,0), limits = c(0, 210)) +
+    ggtitle("Distribution of disease_subtype") + 
+    xlab("study_condition") + ylab("count")
+```
+
+```{r, echo=FALSE}
+### DOES NOT SEEM NECESSARY
+# ## just plotting by age_category
+# all_pData %>% count(age_category) -> tmp
+# ggplot(tmp, aes(x = reorder(age_category, -n), y = n)) + 
+#   geom_bar(stat = "identity") + 
+#   theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+#   annotate("text", x = 2.3 , y = 5700, label = paste0("total samples = ", dim(all_pData)[1])) + 
+#   ggtitle("Number of samples (N) per age_category") + 
+#   xlab("age_category") + ylab("N")
+
+## just plotting by country
+all_pData %>% 
+  count(country) %>%
+    ggplot(aes(x = reorder(country, -n), y = n)) + 
+      geom_bar(stat = "identity") + 
+      theme_few() + 
+      theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+      annotate("text", x = 6 , y = 1350, label = paste0("total samples = ", sum(!is.na(all_pData$country)))) + 
+      scale_y_continuous(expand = c(0,0), limits = c(0, 1500)) +
+      ggtitle("Number of samples per country") + 
+      xlab("country") + ylab("count")
+
+## plotting samples by country and age_category 
+all_pData %>%
+  count(country, age_category) %>% 
+  ggplot(aes(x = reorder(country, -n, sum), y = n, fill = age_category)) + 
+    geom_bar(stat = "identity") + 
+    theme_few() + scale_fill_brewer(palette = "Set2") +
+    theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+    annotate("text", x = 7 , y = 1400, label = paste0("total samples = ", dim(all_pData)[1])) + 
+    scale_y_continuous(expand = c(0,0), limits = c(0, 1500)) +
+    ggtitle("Number of samples per country colored by age_category") + 
+    xlab("country") + ylab("count") -> p
+ggsave(p, filename =  "../results/country_age_bargraph.png")
+```
+
+```{r}
+# ## heatmap of study_condition vs. study names
+# base_size <- 9
+# all_pData %>%
+#   mutate(study_name = sapply(strsplit(all_pData$studyID, ".", fixed = TRUE), function(m) m[1])) %>%
+#   select(study_name, study_condition) %>%
+#   count(study_name, study_condition) %>%
+#     ggplot(aes(study_name, study_condition, fill = n)) +
+#     geom_tile(colour = "white") +
+#     scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+#     theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+#     theme_bw() + #scale_fill_brewer(palette = "Set2") +
+#     # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+#     theme(
+#           axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+#           axis.text.y = element_text(size = base_size * 0.8)) -> p
+# # p
+# ggsave(p, filename = "../results/heatmap_study_condition.png")
+# Heatmap(tmp2)
+
+## heatmap using combined_metadata
+base_size <- 9
+combined_metadata %>%
+  select(PMID, study_condition) %>%
+  count(PMID, study_condition) %>%
+    ggplot(aes(PMID, study_condition, fill = n)) +
+    geom_tile(colour = "white") +
+    scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+    theme_bw() + #scale_fill_brewer(palette = "Set2") +
+    # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+    theme(
+          axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+          axis.text.y = element_text(size = base_size * 0.8)) -> p
+# p
+ggsave(p, filename = "../results/heatmap_study_condition.png")
+
+## heatmap showing country
+base_size <- 9
+combined_metadata %>%
+  select(PMID, country) %>%
+  count(PMID, country) %>%
+    ggplot(aes(PMID, country, fill = n)) +
+    geom_tile(colour = "white") +
+    scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+    theme_bw() + #scale_fill_brewer(palette = "Set2") +
+    # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+    theme(
+          axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+          axis.text.y = element_text(size = base_size * 0.8)) -> p
+# p
+ggsave(p, filename = "../results/heatmap_country.png")
+
+## heatmap showing age / age_category
+base_size <- 9
+combined_metadata %>%
+  select(PMID, age_category) %>%
+  count(PMID, age_category) %>%
+  ggplot(aes(PMID, age_category, fill = n)) +
+  geom_tile(colour = "white") +
+  scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  theme_bw() + #scale_fill_brewer(palette = "Set2") +
+  # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+    axis.text.y = element_text(size = base_size * 0.8)) -> p
+# p
+ggsave(p, filename = "../results/heatmap_age_category.png")
+
+## heatmap showing age
+base_size <- 9
+combined_metadata %>%
+  select(PMID, age) %>%
+  mutate(age_bin = ifelse(age >= 0 & age < 10, "0_10", 
+                          ifelse(age >= 10 & age < 20, "10_20",
+                                 ifelse(age >= 20 & age < 30, "20_30", 
+                                        ifelse(age >= 30 & age < 40, "30_40", 
+                                               ifelse(age >= 40 & age < 50, "40_50", 
+                                                      ifelse(age >= 50 & age < 60, "50_60", 
+                                                             ifelse(age >= 60 & age < 70, "60_70", 
+                                                                    ifelse(age >= 70 & age < 80, "70_80", 
+                                                                           ifelse(age >= 80 & age < 90, "80_90", 
+                                                                                  ifelse(age >= 90 & age < 100, "90_100", NA))))))))))) %>%
+  count(PMID, age_bin) %>%
+  ggplot(aes(PMID, age_bin, fill = n)) +
+  geom_tile(colour = "white") +
+  scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  theme_bw() + #scale_fill_brewer(palette = "Set2") +
+  # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+    axis.text.y = element_text(size = base_size * 0.8)) -> p
+# p
+ggsave(p, filename = "../results/heatmap_age.png")
+
+## heatmap for samples without specific age value -- plotting age_category instead
+base_size <- 9
+combined_metadata %>%
+  select(PMID, age, age_category) %>%
+  filter(is.na(age)) %>%
+  count(PMID, age_category) %>%
+    ggplot(aes(PMID, age_category, fill = n)) +
+      geom_tile(colour = "white") +
+      scale_fill_gradientn(colors = c("blue", "yellow", "red")) +
+      theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+      theme_bw() + #scale_fill_brewer(palette = "Set2") +
+      # scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
+      theme(
+        axis.text.x = element_text(size = base_size * 0.7, angle = 290, hjust = 0, colour = "grey50"),
+        axis.text.y = element_text(size = base_size * 0.8)) +
+        ggtitle("age_category for samples missing `age` value") -> p
+# p
+ggsave(p, filename = "../results/heatmap_na_age_category.png")
+  
+  
+```
+
