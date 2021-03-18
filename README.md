@@ -1,6 +1,6 @@
 # cMDtools
 
-check out the cMDeda folder above for visualizations I made of the curated
+Check out the cMDeda folder above for visualizations I made of the curated
 datasets provided by the curatedMetagenomicTeam! I hope this helps you 
 narrow down data sources for your bioinformatics projects. 
 
